@@ -104,3 +104,27 @@ Network option returns nodes+links required for d3.js network graph. All endpoin
 
 Single Shared Network
 Docker-Compose to start/stop/control all containers
+
+## To run
+
+### Backend/API
+
+```bash
+git clone https://github.com/iwouldntbother/fuzzy-search.git
+cd fuzzy-search
+docker-compose up -d --build
+```
+
+### Upload the dev data to the backend
+
+```bash
+python backend/upload.py # Installing dependencies when prompted
+```
+
+### Frontend
+
+```bash
+cd frontend-react
+npm install
+npm run dev
+```
