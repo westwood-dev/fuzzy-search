@@ -1,0 +1,14 @@
+fastapi[standard]
+aiohttp
+redis
+databases
+elasticsearch
+numpy
+pgvector
+pydantic
+SQLAlchemy
+torch
+transformers
+uvicorn
+asyncpg
+psycopg2-binary

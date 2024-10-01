@@ -1,0 +1,59 @@
+#version: '3.12'
+
+services:
+  fastapi:
+    build:
+      context: .
+      dockerfile: fastapi.dockerfile
+    ports:
+      - '8000:8000'
+    environment:
+      - DATABASE_URL=postgresql://postgres:password123@postgres/cci_fuzzy
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - elasticsearch
+      - redis
+
+  postgres:
+    image: postgres
+    build:
+      context: .
+      dockerfile: pgvector.dockerfile
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password123
+      - POSTGRES_DB=cci_fuzzy
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.2
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - '9200:9200'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -s http://localhost:9200 >/dev/null || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7.4.0
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  elasticsearch_data:
+  redis_data:
