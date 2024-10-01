@@ -29,10 +29,10 @@ Frontend --> User
 
 ```text
 User <-->  Frontend <--> API <--> ElasticSearch <--> Postgres (+pgvector)
-              ^
-              |
-              V
-            Redis
+                          ^
+                          |
+                          V
+                        Redis
 ```
 
 ## FastAPI Data Class Structures
