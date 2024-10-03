@@ -1,9 +1,9 @@
 import os
 import json
 import asyncio
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from databases import Database
+# from sqlalchemy import create_engine
+# from sqlalchemy.orm import sessionmaker
+# from databases import Database
 # from app.main import ArticleModel, Article
 # import app.models
 from app.models import ArticleModel, SearchRequest, Article, SearchResult

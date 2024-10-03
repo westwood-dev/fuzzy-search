@@ -3,40 +3,26 @@ import json
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from transformers import RobertaTokenizer, RobertaModel, RobertaForSequenceClassification
 import torch
+import torch.nn.functional as F
 import numpy as np
-from typing import List, Dict, Optional
-from sqlalchemy import create_engine, Column, Integer, String, Float, JSON, ForeignKey, text
-# from sqlalchemy.ext.declarative import declarative_base
+from typing import List, Dict
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship, Session
+from sqlalchemy.orm import Session
 from databases import Database
 from contextlib import asynccontextmanager
-from pgvector.sqlalchemy import Vector
-import codecs
 import logging
 from elasticsearch import AsyncElasticsearch
 from redis import asyncio as aioredis
 
+# import local model classes
 from models import ArticleModel, SearchRequest, Article, SearchResult, metadata, NetworkNode, NetworkLink, NetworkData
 
+# Logging setup
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-
-# # Database setup
-# DATABASE_URL = "postgresql://postgres:password123@localhost:5432/cci_fuzzy"
-# database = Database(DATABASE_URL)
-# metadata = declarative_base()
-
-# # Elasticsearch setup
-# ELASTICSEARCH_URL = "http://localhost:9200"
-# es = AsyncElasticsearch([ELASTICSEARCH_URL])
-
-# # Redis setup
-# REDIS_URL = "redis://localhost:6379"
-# redis = aioredis.from_url(REDIS_URL, encoding="utf-8", decode_responses=True)
 
 
 # Database setup
@@ -52,24 +38,18 @@ es = AsyncElasticsearch([ELASTICSEARCH_URL])
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379")
 redis = aioredis.from_url(REDIS_URL, encoding="utf-8", decode_responses=True)
 
-# class ArticleModel(metadata):
-#     __tablename__ = "articles"
-#     id = Column(Integer, primary_key=True, index=True)
-#     title = Column(String)
-#     body = Column(JSON)
-#     authors = Column(String)
-#     categories = Column(String)
-#     image_url = Column(String)
-#     embedding = Column(Vector(768))
-
+# create SQLAlchemy engine
 engine = create_engine(DATABASE_URL)
 
+# install postgres pgvector extension if not exists
 with Session(engine) as session:
     with session.begin():
         session.execute(text("create extension if not exists vector;"))
 
+# create tables from metadata
 metadata.metadata.create_all(bind=engine)
 
+# start and end session cleanly
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await database.connect()
@@ -80,6 +60,7 @@ async def lifespan(app: FastAPI):
     await es.close()
     await redis.close()
 
+# FastAPI app
 app = FastAPI(lifespan=lifespan)
 
 # Add CORS middleware
@@ -104,23 +85,8 @@ tokenizer = RobertaTokenizer.from_pretrained(model_name)
 model = RobertaModel.from_pretrained(model_name)
 cross_encoder_model = RobertaForSequenceClassification.from_pretrained(model_name)
 
-# # Function to rank query-article pairs using RoBERTa as a cross-encoder
-# def cross_encoder_rank(query: str, article: str) -> float:
-#     # Prepare the input by concatenating the query and the article text
-#     inputs = tokenizer(query, article, return_tensors="pt", truncation=True, padding=True)
-    
-#     with torch.no_grad():
-#         # Forward pass to compute the logits (classification output)
-#         outputs = cross_encoder_model(**inputs)
-#         logits = outputs.logits
-    
-#     # Extract the relevance score from the logits (e.g., a binary relevance classification score)
-#     relevance_score = logits.squeeze().item()
-    
-#     return relevance_score
 
-import torch.nn.functional as F
-
+# Load pre-trained RoBERTa model and tokenizer for embeddings
 def cross_encoder_rank(query: str, article: str) -> float:
     # Prepare the input by concatenating the query and the article text
     inputs = tokenizer(query, article, return_tensors="pt", truncation=True, padding=True)
@@ -138,21 +104,7 @@ def cross_encoder_rank(query: str, article: str) -> float:
     
     return relevance_score
 
-
-# class SearchRequest(BaseModel):
-#     query: str
-
-# class Article(BaseModel):
-#     title: str
-#     body: List[str]
-#     authors: List[str]
-#     categories: List[str]
-#     image_url: str
-
-# class SearchResult(BaseModel):
-#     article: Article
-#     relevance_score: float
-
+# DEBUG endpoint to clear database (TODO: reset id indexing)
 @app.post("/clear_articles")
 async def clear_articles():
     query = "DELETE FROM articles"
@@ -161,12 +113,14 @@ async def clear_articles():
     await redis.flushdb()
     return {"message": "All articles deleted successfully"}
 
+# function to get the embedding of a string
 def get_embedding(text):
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
     with torch.no_grad():
         outputs = model(**inputs)
     return outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
 
+# function to add an article to the database
 @app.post("/add_article")
 async def add_article(article: Article):
     try:
@@ -214,6 +168,7 @@ async def add_article(article: Article):
         logger.error(f"Error in add_article: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+# function to generate network data from Elasticsearch results
 async def generate_network_data(es_results: List[Dict], query: str) -> NetworkData:
     nodes = []
     links = []
@@ -241,6 +196,7 @@ async def generate_network_data(es_results: List[Dict], query: str) -> NetworkDa
 
     return NetworkData(nodes=nodes, links=links)
 
+# endpoint to search article boy both title and body
 @app.post("/search/all")
 async def relevance_search(request: SearchRequest):
     try:
@@ -298,7 +254,7 @@ async def relevance_search(request: SearchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-    
+# endpoint to search article by title
 @app.post("/search/title")
 async def relevance_search(request: SearchRequest):
     try:
@@ -368,6 +324,8 @@ async def relevance_search(request: SearchRequest):
         logger.error(f"Error in relevance_search: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
     
+
+# endpoint to search article by body
 @app.post("/search/body")
 async def relevance_search(request: SearchRequest):
     try:
@@ -415,6 +373,7 @@ async def relevance_search(request: SearchRequest):
         logger.error(f"Error in relevance_search: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+# endpoint to get article by id
 @app.get("/article/{article_id}")
 async def get_article(article_id: int):
     try:
@@ -447,8 +406,7 @@ async def get_article(article_id: int):
         logger.error(f"Error in get_article: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-# ... (keep the NetworkNode, NetworkLink, NetworkData classes and search_network endpoint as they were)
-
+# endpoint to get network data from title and body embeddings
 @app.post("/search/network")
 async def search_network(request: SearchRequest):
     try:
