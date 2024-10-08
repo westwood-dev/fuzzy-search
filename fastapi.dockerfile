@@ -8,6 +8,4 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
 COPY ./backend/app /code/app
 
-# COPY ./backend/models--roberta-base /root/.cache/huggingface/hub/models--roberta-base
-
 CMD ["fastapi", "run", "app/main.py", "--port", "8000"]

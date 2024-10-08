@@ -185,12 +185,13 @@ async def generate_network_data(es_results: List[Dict], query: str) -> NetworkDa
         nodes.append(NetworkNode(id=f"article_{article_id}", group=1, title=source['title'], author=source['authors'][0]))
         
         # Link query to article
-        links.append(NetworkLink(source="query", target=f"article_{article_id}", value=hit['_score']))
+        # links.append(NetworkLink(source="query", target=f"article_{article_id}", value=hit['_score']))
         
         # Add category nodes and links
         for category in source['categories']:
             if category not in seen_categories:
                 nodes.append(NetworkNode(id=f"category_{category}", group=2))
+                links.append(NetworkLink(source="query", target=f"category_{category}", value=1))
                 seen_categories.add(category)
             links.append(NetworkLink(source=f"article_{article_id}", target=f"category_{category}", value=hit['_score']))
 
@@ -456,6 +457,23 @@ async def search_network(request: SearchRequest):
 
     except Exception as e:
         logger.error(f"Error in search_network: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/network")
+async def get_network():
+    try:
+        es_query = {
+            "query": {
+                "match_all": {}
+            },
+            "size": 1000
+        }
+        es_results = await es.search(index="articles", body=es_query)
+        network_data = await generate_network_data(es_results, "all")
+        return JSONResponse(content=network_data.model_dump())
+    
+    except Exception as e:
+        logger.error(f"Error in get_network: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

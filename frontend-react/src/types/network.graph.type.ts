@@ -15,7 +15,7 @@ export interface NetworkLink extends d3.SimulationLinkDatum<NetworkNode> {
   mapped_value?: number;
 }
 
-export interface GraphData {
+export interface NetworkData {
   nodes: NetworkNode[];
   links: NetworkLink[];
 }

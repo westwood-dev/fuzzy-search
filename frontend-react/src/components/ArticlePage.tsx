@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 
 import type { Article } from '../types/article.type';
 
@@ -32,6 +32,11 @@ const ArticlePage = () => {
   useEffect(() => {
     getArticleData(id, setArticle);
   }, [id, setArticle]);
+
+  const [queryParams] = useSearchParams();
+  const query = queryParams.get('q');
+  console.log('Query:', query);
+  console.log(queryParams);
 
   return (
     <div className="flex justify-center p-4">
