@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 
-import type { Article } from '../types/article.type';
+import type { Article } from '../../types/article.type';
 
 const getArticleData = async (
   articleId: string | undefined,

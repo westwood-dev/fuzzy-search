@@ -1,31 +1,39 @@
-import { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect } from 'react';
 import * as d3 from 'd3';
 
-import type {
-  NetworkData,
-  NetworkLink,
-  NetworkNode,
-} from '../types/network.graph.type';
+type NetworkNode = {
+  id: string;
+  group: number;
+  x?: number;
+  y?: number;
+  fx?: number | null;
+  fy?: number | null;
+  title?: string;
+  author?: string;
+};
+
+type NetworkLink = {
+  source: NetworkNode;
+  target: NetworkNode;
+  value: number;
+  mapped_value?: number;
+};
 
 type ForceDirectedGraphProps = {
-  filter: string;
-  data: NetworkData;
+  filter?: string;
+  query?: string;
+  data: {
+    nodes: NetworkNode[];
+    links: NetworkLink[];
+  };
 };
 
 const ForceDirectedGraphFilter: React.FC<ForceDirectedGraphProps> = ({
   filter,
+  query,
   data,
 }) => {
-  const svgRef = useRef(null);
-  const [tooltip, setTooltip] = useState({
-    show: false,
-    id: '',
-    text: '',
-    author: '',
-    category: '',
-    x: 0,
-    y: 0,
-  });
+  const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
     if (!data || !svgRef.current) return;
@@ -48,6 +56,12 @@ const ForceDirectedGraphFilter: React.FC<ForceDirectedGraphProps> = ({
       link.mapped_value = valueScale(link.value);
     });
 
+    const handleZoom = (e: any) => {
+      d3.select(svgRef.current).select('g').attr('transform', e.transform);
+    };
+
+    const zoom = d3.zoom().on('zoom', handleZoom);
+
     const simulation = d3
       .forceSimulation(nodes)
       .force(
@@ -65,11 +79,14 @@ const ForceDirectedGraphFilter: React.FC<ForceDirectedGraphProps> = ({
       .attr('width', width)
       .attr('height', height)
       .attr('viewBox', [0, 0, width, height])
-      .attr('style', 'width: 100%; height: 100%;');
+      .attr('style', 'width: 100%; height: 100%;')
+      .call(zoom); // Attach zoom behavior to the SVG
 
     svg.selectAll('*').remove(); // Clear previous content
 
-    const link = svg
+    const g = svg.append('g'); // Create a group element to apply zoom transformations
+
+    const link = g
       .append('g')
       .attr('stroke', '#999')
       .attr('stroke-opacity', 0.6)
@@ -81,28 +98,39 @@ const ForceDirectedGraphFilter: React.FC<ForceDirectedGraphProps> = ({
         (d) => Math.sqrt(110 - (d.mapped_value ?? d.value)) / 5
       );
 
-    const node = svg
+    const node = g
       .append('g')
-      .attr('stroke', '#fff')
+      .attr('stroke', '#999')
       .attr('stroke-width', 1.5)
       .selectAll('circle')
       .data(nodes)
       .join('circle')
       .attr('r', 5)
       .attr('fill', (d) => color(d.group.toString()))
-      // @ts-expect-error not sure why this is throwing an error TODO: fix this
-      .call(drag(simulation))
-      .on('click', (event, d) => {
-        const [x, y] = d3.pointer(event, svg.node());
-        setTooltip({
-          show: true,
-          id: d.id,
-          text: d.id.startsWith('query') ? filter : d.title ?? '',
-          author: d.id.startsWith('article_') ? d.author ?? '' : '',
-          category: d.id.startsWith('category_') ? d.id.slice(9) : '',
-          x,
-          y,
-        });
+      .call(drag(simulation));
+
+    const tooltip = g
+      .append('g')
+      .selectAll('text')
+      .data(nodes)
+      .join('text')
+      .attr('x', (d) => d.x ?? 0)
+      .attr('y', (d) => (d.y ?? 0) + 20)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', '10px')
+      .attr('fill', 'white')
+      .attr('pointer-events', 'none')
+      .style('display', 'none')
+      .text((d) => d.title ?? d.id);
+
+    node
+      .on('mouseover', function (event, d) {
+        d3.select(this).attr('r', 8);
+        tooltip.filter((t) => t.id === d.id).style('display', 'block');
+      })
+      .on('mouseout', function (event, d) {
+        d3.select(this).attr('r', 5);
+        tooltip.filter((t) => t.id === d.id).style('display', 'none');
       });
 
     simulation.on('tick', () => {
@@ -113,26 +141,8 @@ const ForceDirectedGraphFilter: React.FC<ForceDirectedGraphProps> = ({
         .attr('y2', (d: NetworkLink) => d.target.y ?? 0);
 
       node.attr('cx', (d) => d.x ?? 0).attr('cy', (d) => d.y ?? 0);
-      // put query node in center
-      node
-        .filter((d) => d.id.startsWith('query'))
-        .attr('cx', width / 2)
-        .attr('cy', height / 2);
-    });
 
-    // Add click event listener to svg to hide tooltip when clicking outside nodes
-    svg.on('click', (event) => {
-      if (event.target.tagName !== 'circle') {
-        setTooltip({
-          show: false,
-          id: '',
-          text: '',
-          author: '',
-          category: '',
-          x: 0,
-          y: 0,
-        });
-      }
+      tooltip.attr('x', (d) => d.x ?? 0).attr('y', (d) => (d.y ?? 0) + 20);
     });
 
     return () => {
@@ -180,33 +190,6 @@ const ForceDirectedGraphFilter: React.FC<ForceDirectedGraphProps> = ({
       }}
     >
       <svg ref={svgRef}></svg>
-      {tooltip.show && (
-        <div
-          style={{
-            position: 'absolute',
-            top: `${tooltip.y}px`,
-            left: `${tooltip.x}px`,
-            background: 'white',
-            border: '2px solid black',
-            padding: '2px',
-            borderRadius: '5px',
-            pointerEvents: 'all',
-          }}
-        >
-          <h2 style={{ fontSize: '1.5rem', fontWeight: '500', color: 'black' }}>
-            {tooltip.text}
-          </h2>
-          <p style={{ fontSize: '0.8rem', color: 'black' }}>
-            {tooltip.author}
-            {tooltip.category}
-          </p>
-          {tooltip.id.startsWith('article_') && (
-            <a href={`/article/${tooltip.id.replace('article_', '')}`}>
-              Read More
-            </a>
-          )}
-        </div>
-      )}
     </div>
   );
 };

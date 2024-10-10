@@ -3,9 +3,9 @@
 // import { useDebounce } from 'use-debounce';
 import './App.css';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
-import SearchPage from './components/SearchPage';
-import ArticlePage from './components/ArticlePage';
-import NewPage from './components/NewPage';
+import SearchPage from './components/pages/SearchPage';
+import ArticlePage from './components/pages/ArticlePage';
+import NewPage from './components/pages/NewPage';
 
 const App: React.FC = () => {
   return (

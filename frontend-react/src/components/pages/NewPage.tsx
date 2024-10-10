@@ -1,10 +1,10 @@
 import React, { useState, useEffect, FocusEventHandler } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
-import type { NetworkData } from '../types/network.graph.type';
-import ForceDirectedGraph from './ForceDirectedGraph';
+import type { NetworkData } from '../../types/network.graph.type';
+import ForceDirectedGraphFilter from '../ForceDirectedGraphFilter';
 
-import './style/NewPage.css';
+import '../style/NewPage.css';
 
 import { FaMagnifyingGlass } from 'react-icons/fa6';
 
@@ -37,8 +37,9 @@ const NewPage = () => {
   const [searchParams, setSeachParams] = useSearchParams();
 
   useEffect(() => {
+    console.log('Has search query', searchParams.has('q'));
     getNetworkData(setNetworkData);
-  }, [setNetworkData]);
+  }, [setNetworkData, searchParams]);
 
   function handleSearchChange(event: React.ChangeEvent<HTMLInputElement>) {
     event.preventDefault();
@@ -65,7 +66,7 @@ const NewPage = () => {
       {networkData ? '' : 'Loading...'}
       {networkData && (
         <div className="w-[100lvw] h-[100lvh] fixed top-0 left-0">
-          <ForceDirectedGraph query={'all'} data={networkData} />
+          <ForceDirectedGraphFilter query={'all'} data={networkData} />
         </div>
       )}
       <form

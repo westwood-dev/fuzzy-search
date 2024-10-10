@@ -5,14 +5,13 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from './ui/collapsible';
+} from '../ui/collapsible';
 import { useEffect, useState } from 'react';
-import ForceDirectedGraph from './ForceDirectedGraph';
-import ForceDirectedGraphText from './ForceDirectedGraphText';
+import ForceDirectedGraph from '../ForceDirectedGraph';
 
-import type { Article } from '../types/article.type';
-import type { NetworkLink } from '../types/network.graph.type';
-import ListResult from './ListResult';
+import type { Article } from '../../types/article.type';
+import type { NetworkLink } from '../../types/network.graph.type';
+import ListResult from '../ListResult';
 
 const SearchPage: React.FC = () => {
   const [nodes, setNodes] = useState<[]>([]);
