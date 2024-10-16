@@ -1,9 +1,7 @@
 <script setup lang="ts">
-const props = defineProps({
+defineProps({
   error: Object,
 });
-
-const route = useRoute();
 
 const handleError = () => clearError({ redirect: '/' });
 </script>
@@ -11,9 +9,8 @@ const handleError = () => clearError({ redirect: '/' });
 <template>
   <div>
     <h2>{{ error?.statusCode }}</h2>
-    <p>ain't my fault bro, i swear</p>
-    <p id="homeBTN" @click="handleError">go drunk, ur home</p>
-    <!-- <p>{{ route.path.split('/')[1] }}</p> -->
+    <p>Oops, not sure what happened there</p>
+    <p id="homeBTN" @click="handleError">head home</p>
   </div>
 </template>
 
@@ -27,7 +24,7 @@ div {
 }
 
 h2 {
-  font-family: 'Poppins';
+  font-family: monospace;
   font-size: 200px;
   text-align: center;
   margin: 0;

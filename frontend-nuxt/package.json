@@ -10,9 +10,15 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@nuxt/icon": "^1.5.6",
     "@nuxt/image": "^1.8.0",
+    "axios": "^1.7.7",
+    "d3": "^7.9.0",
     "nuxt": "^3.13.0",
     "vue": "latest",
     "vue-router": "latest"
+  },
+  "devDependencies": {
+    "@types/d3": "^7.4.3"
   }
 }

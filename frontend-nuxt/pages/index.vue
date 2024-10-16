@@ -1,123 +1,72 @@
-<template>
-  <div class="site-cont">
-    <h1>Search</h1>
-    <form action="" :onsubmit="searchSubmit">
-      <input type="text" v-model="search" placeholder="Search..." />
-      <button type="submit">Search</button><br />
-      <input
-        type="checkbox"
-        name="title-only"
-        id="title-check"
-        v-model="titleCheck"
-      />
-      <label for="title-check">Title</label>
-      <input
-        type="checkbox"
-        name="body-only"
-        id="body-check"
-        v-model="bodyCheck"
-      />
-      <label for="body-check">Body</label>
-    </form>
-    <p>{{ titleCheck }}, {{ bodyCheck }}</p>
-    <div>
-      <ClientOnly>
-        <template v-if="searchResults.length === 0">
-          <p>No results</p>
-        </template>
-        <div
-          class="result-cont"
-          v-for="(result, idx) in searchResults"
-          :key="idx"
-        >
-          <h2>{{ result.title }}</h2>
-          <p>{{ result.authors[0] }}</p>
-        </div>
-      </ClientOnly>
-    </div>
-  </div>
-</template>
-
 <script setup lang="ts">
 import { ref } from 'vue';
 import type { Article } from '~~/types/article.type';
+import type { NetworkData } from '~~/types/network.type';
 
-const search = ref('');
-const searchResults: Ref<Article[]> = ref([]);
-
-const titleCheck: Ref<Boolean> = ref(true);
-const bodyCheck: Ref<Boolean> = ref(false);
-
-const checkValue = () => {
-  console.log(`${titleCheck.value}${bodyCheck.value}`);
-  switch (`${titleCheck.value}${bodyCheck.value}`) {
-    case 'truefalse':
-      return 'title';
-    case 'falsetrue':
-      return 'body';
-    default:
-      return 'all';
-  }
-};
+const networkData = ref<NetworkData>({
+  nodes: [],
+  links: [],
+});
 
 const executeQuery = async () => {
-  console.log(checkValue());
-  const data = await $fetch(`http://localhost:8000/search/${checkValue()}`, {
-    method: 'POST',
-    body: {
-      query: search.value,
-    },
-  });
+  try {
+    const response = await fetch(`http://localhost:8000/network`, {
+      method: 'GET',
+    });
 
-  // const data: { results: Article[] } = await $fetch(
-  //   `http://localhost:8000/search/${checkValue()}`,
-  //   {
-  //     method: 'post',
-  //     body: {
-  //       query: search.value,
-  //     },
-  //   }
-  // );
-  if (data.results === undefined || data.results.length === 0) {
-    console.log('No results');
-    searchResults.value = [];
-    return;
-  } else {
-    console.log(data);
-    searchResults.value = data.results;
-    return;
+    if (!response.ok) {
+      throw new Error('Network response was not ok');
+    }
+
+    const data = await response.json();
+    // console.log('Network data:', data);
+    networkData.value = data;
+  } catch (error) {
+    console.error('Fetch error:', error);
   }
 };
 
-const searchSubmit = (e: Event) => {
-  e.preventDefault();
-  if (search.value === '') {
-    return;
-  }
-  console.log('Query:', search.value);
+onMounted(() => {
   executeQuery();
-};
+});
 </script>
 
+<template>
+  <div>
+    <div class="network-cont">
+      <Network :data="networkData" />
+    </div>
+
+    <Search />
+
+    <IconButtonExpanding
+      position="left-bottom"
+      iconName="material-symbols:info-i"
+    >
+      <h2 style="margin-bottom: 0">Info</h2>
+      <NuxtLink to="/about">About</NuxtLink><br />
+      <NuxtLink to="/docs">Docs</NuxtLink><br />
+      <NuxtLink to="/upload">Upload</NuxtLink>
+    </IconButtonExpanding>
+
+    <IconButton
+      style="position: fixed; bottom: 0; right: 0"
+      iconName="material-symbols:upload"
+      :onClickFunction="() => navigateTo('/upload')"
+    />
+
+    <!-- Collapsable menu -->
+    <Collapsable />
+  </div>
+</template>
+
 <style scoped>
-.site-cont {
-  padding: 1rem;
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.result-cont {
-  /* margin-top: 1rem; */
-  padding: 1rem;
-  border: 1px solid rgba(var(--text), 0.4);
-  border-width: 0 0 1px 0;
-}
-
-.result-cont h2 {
-  margin-bottom: 0;
-}
-
-.result-cont p {
-  margin-top: 0;
+.network-cont {
+  height: 100lvh;
+  width: 100lvw;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 0;
 }
 </style>

@@ -21,6 +21,12 @@ class ArticleModel(metadata):
 class SearchRequest(BaseModel):
     query: str
     network: bool = False
+    count: int = 10
+    exact_boost: int = 5
+    re_rank: bool = False
+    types: List[str] = ['article'] # not implemented yet
+
+
 
 class Article(BaseModel):
     title: str
@@ -32,6 +38,8 @@ class Article(BaseModel):
 class SearchResult(BaseModel):
     article: Article
     relevance_score: float
+
+
 
 class NetworkNode(BaseModel):
     id: str
@@ -50,3 +58,11 @@ class NetworkData(BaseModel):
 
 class APIResponse(BaseModel):
     list: List[SearchResult]
+
+class SearchResponse(BaseModel):
+    results: List[SearchResult]
+    exact_boost: int
+    re_rank: bool
+    count: int
+    network: Optional[NetworkData] = None
+    types: Optional[List[str]] = None

@@ -12,3 +12,11 @@ transformers
 uvicorn
 asyncpg
 psycopg2-binary
+python-multipart
+PyPDF2
+python-docx
+pandas
+openpyxl
+Pillow
+pytesseract
+python-magic

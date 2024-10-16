@@ -5,9 +5,7 @@ console.log(
 </script> -->
 
 <template>
-  <div>
-    <NuxtPage />
-  </div>
+  <div><NuxtPage /></div>
 </template>
 
 <style>
@@ -41,6 +39,7 @@ a {
   --text: 255, 255, 255;
   --bg: 33, 37, 41;
   --link-color: #0077b6;
+  --colour-0: rgb(97.348% 49.838% 29.899%);
 }
 
 .textColour {
@@ -79,5 +78,42 @@ a {
   #scroll-section {
     height: calc(100svh - 12vw);
   }
+}
+
+a::before {
+  content: '[';
+}
+
+a[target='_blank']::after {
+  content: ']↗';
+}
+
+a::after {
+  content: ']→';
+}
+a {
+  color: #fbff00;
+  color: #00f9f9;
+}
+
+.page-enter-active::after,
+.page-leave-active::after {
+  content: '';
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 0vw;
+  height: 0vw;
+  border-radius: 50%;
+  background-color: #8a2be2;
+  z-index: 100;
+  transition: width 500ms, height 500ms;
+}
+
+.page-enter-from::after,
+.page-leave-to::after {
+  width: 120vw;
+  height: 120vw;
 }
 </style>

@@ -6,7 +6,8 @@ import ForceDirectedGraphFilter from '../ForceDirectedGraphFilter';
 
 import '../style/NewPage.css';
 
-import { FaMagnifyingGlass } from 'react-icons/fa6';
+import { FaInfo, FaMagnifyingGlass } from 'react-icons/fa6';
+import IconButton from '../IconButton';
 
 const getNetworkData = async (
   setNetworkData: React.Dispatch<React.SetStateAction<NetworkData | undefined>>
@@ -90,6 +91,11 @@ const NewPage = () => {
           <FaMagnifyingGlass />
         </button>
       </form>
+      <IconButton
+        icon={<FaInfo />}
+        alt="Info"
+        onClick={() => console.log('Info')}
+      />
     </div>
   );
 };
