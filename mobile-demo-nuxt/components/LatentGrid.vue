@@ -13,7 +13,10 @@
         <div>{{ index + 1 }}</div>
       </div>
       <DevOnly>
-        <div class="dev-results-cont">
+        <div
+          class="dev-results-cont"
+          :style="{ display: dev_showPoints ? 'block' : 'none' }"
+        >
           <div class="dev-results-holder">
             <div
               v-for="(result, idx) in props.results"
@@ -23,10 +26,22 @@
             ></div>
           </div>
         </div>
+        <div
+          class="dev-controls"
+          style="
+            position: fixed;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            width: 100%;
+            padding: 1rem;
+          "
+        >
+          <button @click="dev_togglePoints">Toggle Points</button>
+        </div>
       </DevOnly>
     </div>
 
-    {{ results }}
+    <!-- {{ results }} -->
   </div>
 </template>
 
@@ -50,6 +65,18 @@ const cellPointCounts = computed(() => {
 const getCellOpacity = (index: number) => {
   const maxCount = Math.max(...cellPointCounts.value);
   return maxCount > 0 ? cellPointCounts.value[index] / maxCount : 0;
+};
+
+// DEV
+
+const dev_showPoints = ref(true);
+
+const dev_togglePoints = () => {
+  if (dev_showPoints.value) {
+    dev_showPoints.value = false;
+  } else {
+    dev_showPoints.value = true;
+  }
 };
 </script>
 
