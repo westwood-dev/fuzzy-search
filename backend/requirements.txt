@@ -20,3 +20,4 @@ openpyxl
 Pillow
 pytesseract
 python-magic
+scikit-learn

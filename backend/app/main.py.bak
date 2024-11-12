@@ -11,10 +11,8 @@ import logging
 from elasticsearch import AsyncElasticsearch
 from redis import asyncio as aioredis
 
-import numpy as np
-
 from document_processor import extract_text, ALLOWED_EXTENSIONS
-from embedding import get_embedding, re_rank, precompute_embeddings_and_clusters, tsne, kmeans
+from embedding import get_embedding, re_rank
 from network import generate_network_data
 
 # import local model classes
@@ -206,75 +204,82 @@ async def upload_file(file: UploadFile = File(...)):
 def generate_search_cache_key(request: SearchRequest):
     return f"search:{request.query}network:{request.network}count:{request.count}exact_boost:{request.exact_boost}re_rank:{request.re_rank}types:{request.types}"
 
-# Pre-compute 2D embeddings and cluster labels
-article_embeddings = {}
-article_clusters = {}
-
-@app.on_event("startup")
-async def startup_event():
-    global article_embeddings, article_clusters
-
-    # Fetch articles from Elasticsearch
-    es_query = {
-        "query": {
-            "match_all": {}
-        },
-        "size": 1000
-    }
-    es_results = await es.search(index="articles", body=es_query)
-    embeddings = [hit['_source']['embedding'] for hit in es_results['hits']['hits']]
-
-    # Precompute embeddings and clusters
-    precompute_embeddings_and_clusters(embeddings) 
 
 # /Search - To provide all search options
 @app.post("/search")
 async def search(request: SearchRequest) -> SearchResponse:
     try:
         query_embedding = get_embedding(request.query)
-        query_2d_embedding = tsne.fit_transform(query_embedding.reshape(1, -1))[0]
 
         # Check Redis cache
         cache_key = generate_search_cache_key(request)
         cached_article = await redis.get(cache_key)
         if cached_article:
             return JSONResponse(content=json.loads(cached_article))
-
-        # Find nearest neighbors based on 2D embedding
-        distances = {i: np.linalg.norm(article_embeddings[i] - query_2d_embedding) for i in article_embeddings}
-        sorted_distances = sorted(distances.items(), key=lambda item: item[1])
-        nearest_neighbors = [id for id, distance in sorted_distances[:100]]
-
-        # Gather results
-        results = []
-        for neighbor_id in nearest_neighbors:
-            try:
-                es_result = await es.get(index="articles", id=neighbor_id)
-                if es_result['found']:
-                    source = es_result['_source']
-                    results.append(SearchResult(
-                        article=Article(
-                            title=source['title'],
-                            body=source['body'],
-                            authors=source['authors'],
-                            categories=source['categories'],
-                            image_url=source['image_url']
-                        ),
-                        relevance_score=distances[neighbor_id]
-                    ))
-            except Exception as e:
-                logger.error(f"Error fetching article {neighbor_id}: {e}", exc_info=True)
-
-        # Format response
-        response: SearchResponse = {
-            "results": results,
-            "count": request.count,
-            "exact_boost": request.exact_boost,
-            "re_rank": request.re_rank,
-            "types": request.types,
-            "query_embedding": query_2d_embedding.tolist(),
-            "cluster_labels": [article_clusters[neighbor_id] for neighbor_id in nearest_neighbors]
+        
+        # Elasticsearch query combining exact match and semantic search
+        es_query = {
+            "query": {
+                "bool": {
+                    "should": [
+                        {
+                            "match_phrase": {
+                                "title": {
+                                    "query": request.query,
+                                    "boost": 5  # Boost exact matches
+                                }
+                            }
+                        },
+                        {
+                            "script_score": {
+                                "query": {"match_all": {}},
+                                "script": {
+                                    "source": "cosineSimilarity(params.query_vector, 'embedding') + 1.0",
+                                    "params": {"query_vector": query_embedding.tolist()}
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            "size": request.count if not request.re_rank else (request.count * 2)
         }
+
+        # Search in Elasticsearch (TODO: implement types filtering)
+        es_results = await es.search(index="articles", body=es_query)
+
+        results = []
+
+        if request.re_rank:
+            results = re_rank(request.query, es_results['hits']['hits'], request.count)
+        else:
+            for hit in es_results['hits']['hits']:
+                source = hit['_source']
+                result = {
+                    "id": hit['_id'],
+                    "title": source['title'],
+                    "authors": source['authors'],
+                    "categories": source['categories'],
+                    "image_url": source['image_url'],
+                    "similarity": hit['_score'] - 1  # Adjust score to be between 0 and 1
+                }
+                results.append(result)
+
+        response: SearchResponse = {
+            "results": results, 
+            "count": request.count, 
+            "exact_boost": request.exact_boost, 
+            "re_rank": request.re_rank, 
+            "types": request.types
+            }
+
+        # response = {"results": results}
+
+        # response["re_rank"] = request.re_rank
+
+        if request.network:
+            network_data = await generate_network_data(es_results, request.query)
+            response["network"] = network_data.model_dump()
 
         # Cache results in Redis
         await redis.setex(cache_key, 3600, json.dumps(response))  # Cache for 1 hour
