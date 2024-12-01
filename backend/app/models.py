@@ -17,6 +17,8 @@ class ArticleModel(metadata):
     categories = Column(String)
     image_url = Column(String)
     embedding = Column(Vector(768))
+    tsne_embedding = Column(Vector(2))
+    umap_embedding = Column(Vector(2))
 
 class SearchRequest(BaseModel):
     query: str
@@ -66,3 +68,5 @@ class SearchResponse(BaseModel):
     count: int
     network: Optional[NetworkData] = None
     types: Optional[List[str]] = None
+    tsne_mapping: Optional[Dict[str, List[float]]] = None
+    umap_mapping: Optional[Dict[str, List[float]]] = None

@@ -14,8 +14,9 @@ from redis import asyncio as aioredis
 import numpy as np
 
 from document_processor import extract_text, ALLOWED_EXTENSIONS
-from embedding import get_embedding, re_rank, precompute_embeddings_and_clusters, tsne, kmeans
+from embedding import get_embedding, re_rank, precompute_embeddings_and_clusters, kmeans
 from network import generate_network_data
+from embedding import get_dimension_reduced_embeddings, AXES
 
 # import local model classes
 from models import ArticleModel, SearchRequest, Article, SearchResult, SearchResponse, metadata, NetworkNode, NetworkLink, NetworkData
@@ -102,6 +103,9 @@ async def add_article(article: Article):
         title_embedding = get_embedding(article.title)
         body_embedding = get_embedding(' '.join(article.body))
         
+        # Calculate dimension reduced embeddings
+        tsne_embed, umap_embed = get_dimension_reduced_embeddings(embedding)
+        
         # Prepare values for database insertion
         values = {
             "title": article.title,
@@ -112,12 +116,16 @@ async def add_article(article: Article):
             "categories": json.dumps(article.categories),
             "image_url": article.image_url,
             "embedding": str(embedding.tolist()),
+            "tsne_embedding": str([tsne_embed['x'], tsne_embed['y']]),
+            "umap_embedding": str([umap_embed['x'], umap_embed['y']]),
         }
         
         # Insert into PostgreSQL
         query = """
-        INSERT INTO articles (title, title_embedding, body, body_embedding, authors, categories, image_url, embedding)
-        VALUES (:title, :title_embedding, :body, :body_embedding, :authors, :categories, :image_url, :embedding)
+        INSERT INTO articles (title, title_embedding, body, body_embedding, authors, 
+                            categories, image_url, embedding, tsne_embedding, umap_embedding)
+        VALUES (:title, :title_embedding, :body, :body_embedding, :authors, 
+                :categories, :image_url, :embedding, :tsne_embedding, :umap_embedding)
         RETURNING id
         """
         article_id = await database.execute(query=query, values=values)
@@ -132,6 +140,8 @@ async def add_article(article: Article):
             "categories": article.categories,
             "image_url": article.image_url,
             "embedding": embedding.tolist(),
+            "tsne_embedding": [tsne_embed['x'], tsne_embed['y']],
+            "umap_embedding": [umap_embed['x'], umap_embed['y']],
         }
         await es.index(index="articles", id=article_id, body=es_doc)
         
@@ -209,61 +219,112 @@ def generate_search_cache_key(request: SearchRequest):
 # Pre-compute 2D embeddings and cluster labels
 article_embeddings = {}
 article_clusters = {}
+article_tsne_embeddings = {}
+article_umap_embeddings = {}
 
-@app.on_event("startup")
-async def startup_event():
-    global article_embeddings, article_clusters
+# @app.on_event("startup")
+# async def startup_event():
+#     global article_embeddings, article_clusters
 
-    # Fetch articles from Elasticsearch
-    es_query = {
-        "query": {
-            "match_all": {}
-        },
-        "size": 1000
-    }
-    es_results = await es.search(index="articles", body=es_query)
-    embeddings = [hit['_source']['embedding'] for hit in es_results['hits']['hits']]
+#     # Fetch articles from Elasticsearch
+#     es_query = {
+#         "query": {
+#             "match_all": {}
+#         },
+#         "size": 1000
+#     }
+#     es_results = await es.search(index="articles", body=es_query)
+#     embeddings = [hit['_source']['embedding'] for hit in es_results['hits']['hits']]
 
-    # Precompute embeddings and clusters
-    precompute_embeddings_and_clusters(embeddings) 
+#     # Precompute embeddings and clusters
+#     precompute_embeddings_and_clusters(embeddings) 
 
 # /Search - To provide all search options
 @app.post("/search")
 async def search(request: SearchRequest) -> SearchResponse:
     try:
         query_embedding = get_embedding(request.query)
-        query_2d_embedding = tsne.fit_transform(query_embedding.reshape(1, -1))[0]
+        # query_tsne, query_umap = get_dimension_reduced_embeddings(query_embedding)
 
         # Check Redis cache
-        cache_key = generate_search_cache_key(request)
-        cached_article = await redis.get(cache_key)
-        if cached_article:
-            return JSONResponse(content=json.loads(cached_article))
+        # cache_key = generate_search_cache_key(request)
+        # cached_article = await redis.get(cache_key)
+        # if cached_article:
+        #     return JSONResponse(content=json.loads(cached_article))
+
+        # # Create mapping dictionaries for visualization
+        # tsne_mapping = {
+        #     "query": query_tsne,
+        #     "articles": article_tsne_embeddings,
+        #     "axes": AXES
+        # }
+        
+        # umap_mapping = {
+        #     "query": query_umap,
+        #     "articles": article_umap_embeddings,
+        #     "axes": AXES
+        # }
 
         # Find nearest neighbors based on 2D embedding
-        distances = {i: np.linalg.norm(article_embeddings[i] - query_2d_embedding) for i in article_embeddings}
+        distances = {i: np.linalg.norm(article_embeddings[i] - query_embedding) for i in article_embeddings}
         sorted_distances = sorted(distances.items(), key=lambda item: item[1])
         nearest_neighbors = [id for id, distance in sorted_distances[:100]]
 
-        # Gather results
+        # # Gather results
+        # results = []
+        # for neighbor_id in nearest_neighbors:
+        #     try:
+        #         es_result = await es.get(index="articles", id=neighbor_id)
+        #         if es_result['found']:
+        #             source = es_result['_source']
+        #             results.append(SearchResult(
+        #                 article=Article(
+        #                     title=source['title'],
+        #                     body=source['body'],
+        #                     authors=source['authors'],
+        #                     categories=source['categories'],
+        #                     image_url=source['image_url'],
+        #                     tsne_mapping=source['tsne_embedding'],
+        #                     umap_mapping=source['umap_embedding']
+        #                 ),
+        #                 relevance_score=distances[neighbor_id]
+        #             ))
+        #     except Exception as e:
+        #         logger.error(f"Error fetching article {neighbor_id}: {e}", exc_info=True)
+
+        es_query = {
+            "query": {
+                "script_score": {
+                    "query":{"match_all": {}},
+                    "script": {
+                        "source": "cosineSimilarity(params.query_vector, 'embedding') + 1.0",
+                        "params": {"query_vector": query_embedding.tolist()}
+                    }
+                }
+            },
+            "size": request.count if not request.re_rank else (request.count * 2)
+        }
+
+        es_results = await es.search(index="articles", body=es_query)
+
         results = []
-        for neighbor_id in nearest_neighbors:
-            try:
-                es_result = await es.get(index="articles", id=neighbor_id)
-                if es_result['found']:
-                    source = es_result['_source']
-                    results.append(SearchResult(
-                        article=Article(
-                            title=source['title'],
-                            body=source['body'],
-                            authors=source['authors'],
-                            categories=source['categories'],
-                            image_url=source['image_url']
-                        ),
-                        relevance_score=distances[neighbor_id]
-                    ))
-            except Exception as e:
-                logger.error(f"Error fetching article {neighbor_id}: {e}", exc_info=True)
+
+        if request.re_rank:
+            results = re_rank(request.query, es_results['hits']['hits'], request.count)
+        else:
+            for hit in es_results['hits']['hits']:
+                source = hit['_source']
+                result = {
+                    "id":hit['_id'],
+                    "title": source['title'],
+                    "authors": source['authors'],
+                    "categories": source['categories'],
+                    "image_url": source['image_url'],
+                    "similarity": hit['_score'] - 1.0, # Adjust score to be between 0 and 1
+                    "tsne_mapping": source['tsne_embedding'],
+                    "umap_mapping": source['umap_embedding']
+                }
+                results.append(result)
 
         # Format response
         response: SearchResponse = {
@@ -272,12 +333,12 @@ async def search(request: SearchRequest) -> SearchResponse:
             "exact_boost": request.exact_boost,
             "re_rank": request.re_rank,
             "types": request.types,
-            "query_embedding": query_2d_embedding.tolist(),
-            "cluster_labels": [article_clusters[neighbor_id] for neighbor_id in nearest_neighbors]
+            "query_embedding": query_embedding.tolist(),
+            # "cluster_labels": [article_clusters[neighbor_id] for neighbor_id in nearest_neighbors],
         }
 
         # Cache results in Redis
-        await redis.setex(cache_key, 3600, json.dumps(response))  # Cache for 1 hour
+        # await redis.setex(cache_key, 3600, json.dumps(response))  # Cache for 1 hour
 
         return JSONResponse(content=response)
 
