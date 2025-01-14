@@ -1,5 +1,15 @@
 # System Diagram
 
+## 0.2 Plan
+
+- [ ] Embed scraper ([Scrapy](https://github.com/scrapy/scrapy))
+- [ ] Admin dashboard to manage sources
+- [ ] Auto embed, scraped data
+- [ ] Create summary from embedded data?
+- [ ] Generate 2D embedding using Umap or TSNE
+- [ ] Use cosine similarity for large batch search
+- [ ] Refine option using 2D embedding
+
 ## Flow Diagram
 
 ```mermaid
