@@ -3,6 +3,7 @@ from sqlalchemy.orm import declarative_base
 from sqlalchemy import create_engine, Column, Integer, String, Float, JSON, ForeignKey, text
 from pgvector.sqlalchemy import Vector
 from typing import List, Dict, Optional
+from fastapi import Request
 
 metadata = declarative_base()
 

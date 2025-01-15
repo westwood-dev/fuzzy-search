@@ -22,3 +22,4 @@ pytesseract
 python-magic
 scikit-learn
 umap-learn
+Scrapy

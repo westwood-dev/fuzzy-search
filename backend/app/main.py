@@ -1,8 +1,13 @@
 import os
 import json
-from fastapi import FastAPI, HTTPException, File, UploadFile
+import asyncio
+from multiprocessing import Process
+from multiprocessing.queues import Queue
+from multiprocessing.synchronize import Event
+from queue import Empty
+from fastapi import FastAPI, HTTPException, File, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from databases import Database
@@ -10,6 +15,7 @@ from contextlib import asynccontextmanager
 import logging
 from elasticsearch import AsyncElasticsearch
 from redis import asyncio as aioredis
+import multiprocessing
 
 import numpy as np
 
@@ -17,6 +23,7 @@ from document_processor import extract_text, ALLOWED_EXTENSIONS
 from embedding import get_embedding, re_rank, precompute_embeddings_and_clusters, kmeans
 from network import generate_network_data
 from embedding import get_dimension_reduced_embeddings, AXES
+from scrape import run_spider, ScrapeType
 
 # import local model classes
 from models import ArticleModel, SearchRequest, Article, SearchResult, SearchResponse, metadata, NetworkNode, NetworkLink, NetworkData
@@ -345,6 +352,44 @@ async def search(request: SearchRequest) -> SearchResponse:
     except Exception as e:
         logger.error(f"Error in relevance_search: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    
+async def fake_large_data_request(query_string: str):
+    for i in range(10):
+        await asyncio.sleep(1)
+        yield f"{query_string}{i},"
+
+@app.get('/scrape')
+async def scrape(
+    query_string: str,
+    content_type: ScrapeType = ScrapeType.BODY
+):
+    ctx = multiprocessing.get_context('spawn')
+    data_queue = ctx.Queue()
+    stop_flag = ctx.Event()
+    
+    spider_process = Process(
+        target=run_spider,
+        args=(data_queue, stop_flag, query_string, content_type)
+    )
+    spider_process.start()
+    
+    results = ''
+    while True:
+        try:
+            data = data_queue.get(timeout=30)  # 30 second timeout
+            if isinstance(data, dict) and data.get('type') == 'status' and data.get('status') == 'done':
+                break
+            results = data
+        except Empty:
+            stop_flag.set()
+            break
+    
+    spider_process.join(timeout=2)
+    if spider_process.is_alive():
+        spider_process.terminate()
+    
+    return JSONResponse(results)
+
 
 if __name__ == "__main__":
     import uvicorn
