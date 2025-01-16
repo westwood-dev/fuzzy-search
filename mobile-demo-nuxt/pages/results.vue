@@ -48,8 +48,6 @@ import { useResultsStore } from '~/store/resultsStore';
 
 const resultsStore = useResultsStore();
 
-const latentGridDetails = ref<HTMLDivElement | null>(null);
-
 const latentGridHeight = ref<string>('calc(100vw * 1.05)');
 
 const filter = ref<string | null>(null);
@@ -168,16 +166,18 @@ const handleCellClick = (cellIndex: number, coords: [number, number]) => {
 const filteredResults = computed(() => {
   if (activeCell.value === null) return resultsStore.results;
 
-  return resultsStore.results.filter((result) => {
-    const mapping = tsneMapping.value.find((m) => m.id === result.id);
-    if (!mapping) return false;
+  return resultsStore.results
+    .filter((result) => {
+      const mapping = tsneMapping.value.find((m) => m.id === result.id);
+      if (!mapping) return false;
 
-    const cellX = Math.min(Math.floor(mapping.x * 5), 4);
-    const cellY = Math.min(Math.floor(mapping.y * 5), 4);
-    const cellIndex = cellY * 5 + cellX;
+      const cellX = Math.min(Math.floor(mapping.x * 5), 4);
+      const cellY = Math.min(Math.floor(mapping.y * 5), 4);
+      const cellIndex = cellY * 5 + cellX;
 
-    return cellIndex === activeCell.value;
-  });
+      return cellIndex === activeCell.value;
+    })
+    .sort((a, b) => a.similarity - b.similarity);
 });
 </script>
 

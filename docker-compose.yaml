@@ -21,6 +21,7 @@ services:
     build:
       context: .
       dockerfile: pgvector.dockerfile
+      network: host
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=password123

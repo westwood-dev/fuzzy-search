@@ -1,9 +1,11 @@
-# Use the official PostgreSQL image
+# Use the official Postg# Use the official PostgreSQL image
 FROM postgres:17
+
+#RUN rm -rf /var/lib/apt/lists/* && apt update
 
 # Install build dependencies for pgvector
 RUN apt-get update && apt-get install -y \
-    postgresql-server-dev-17 \
+    postgresql-server-dev-all \
     git \
     make \
     gcc \
