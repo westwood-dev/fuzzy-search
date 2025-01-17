@@ -71,3 +71,9 @@ class SearchResponse(BaseModel):
     types: Optional[List[str]] = None
     tsne_mapping: Optional[Dict[str, List[float]]] = None
     umap_mapping: Optional[Dict[str, List[float]]] = None
+
+class SummariseRequest(BaseModel):
+    sentences: List[str]
+
+class StatusRequest(BaseModel):
+    url: str

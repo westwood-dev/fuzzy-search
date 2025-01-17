@@ -4,6 +4,7 @@ from multiprocessing import Process, Queue, Event
 from scrapy import Request
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
+import logging
 from scraper.spiders.body_spider import BodySpider
 from scrapy.selector import Selector
 
@@ -33,6 +34,7 @@ class AsyncSpider(BodySpider):
         self.query = query
         self.stop_flag = stop_flag
         self.scrape_type = scrape_type
+        logging.getLogger('scrapy').setLevel(level=logging.ERROR)
  
     def start_requests(self):
         urls = [
@@ -82,8 +84,6 @@ class AsyncSpider(BodySpider):
             body_content = sel.get()
             body_content = strip_unneeded(body_content)
 
-            print('===Body content===')
-            print(body_content[:10])
         
         if not body_content:
             # Fallback: try to get the entire HTML document

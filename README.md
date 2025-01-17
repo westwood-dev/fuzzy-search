@@ -134,7 +134,7 @@ python backend/upload.py # Installing dependencies when prompted
 ### Frontend
 
 ```bash
-cd frontend-react
+cd frontend
 npm install
 npm run dev
 ```

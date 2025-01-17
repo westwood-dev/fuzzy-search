@@ -1,6 +1,22 @@
 import { useState, useRef, useEffect } from 'react';
 
+let urlQueryError = '';
+
 const queryScrape = async (url: string, onChunk: (chunk: string) => void) => {
+  try {
+    await fetch(`http://localhost:8000/status?url=${url}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.status != 'ok') {
+          urlQueryError = `Site not available, double check you typed it correctly.`;
+          // return;
+          throw new Error(`Site not available: ${data.status}`);
+        }
+      });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Cannot access site: ${errorMessage}`);
+  }
   const response = await fetch(
     `http://localhost:8000/scrape?query_string=${url}&content_type=full`,
     {
@@ -13,6 +29,38 @@ const queryScrape = async (url: string, onChunk: (chunk: string) => void) => {
 
   const data = await response.json();
   onChunk(JSON.stringify(data));
+};
+
+const getSummary = async (
+  sentence_array: string[],
+  abortController?: AbortController
+) => {
+  const controller = abortController || new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch('http://localhost:8000/summarise', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sentences: sentence_array.map((element) =>
+          element.replace(/<[^>]+>/g, ' ').trim()
+        ),
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 };
 
 function Scrape() {
@@ -29,6 +77,9 @@ function Scrape() {
 
   const [authors, setAuthors] = useState<string[]>([]);
 
+  const [summary, setSummary] = useState<string>('');
+  const abortController = useRef<AbortController>();
+
   useEffect(() => {
     const handleIframeMessage = (event: MessageEvent) => {
       if (event.data.type === 'elementSelected') {
@@ -40,29 +91,79 @@ function Scrape() {
     return () => window.removeEventListener('message', handleIframeMessage);
   }, []);
 
+  useEffect(() => {
+    // Cleanup function to abort any ongoing requests when component unmounts
+    return () => {
+      if (abortController.current) {
+        abortController.current.abort();
+      }
+    };
+  }, []);
+
   const injectSelectionScript = () => {
     const iframe = iframeRef.current;
     if (!iframe?.contentWindow) return;
 
     const script = `
+      // Keep track of selected elements
+      window.selectedElements = new Set();
+
       document.querySelectorAll('a').forEach(a => a.setAttribute('target', '_blank'));
+      
       document.body.addEventListener('mouseover', (e) => {
-        e.target.style.outline = '2px solid #007bff';
+      if (!window.selectedElements.has(e.target) && !hasSelectedParent(e.target)) {
+      e.target.style.outline = '2px solid #007bff';
+      }
       });
 
       document.body.addEventListener('mouseout', (e) => {
-        e.target.style.outline = '';
+      if (!window.selectedElements.has(e.target)) {
+      e.target.style.outline = '';
+      }
       });
 
+      function hasSelectedParent(element) {
+      let parent = element.parentElement;
+      while (parent) {
+        if (window.selectedElements.has(parent)) {
+        return true;
+        }
+        parent = parent.parentElement;
+      }
+      return false;
+      }
+
       document.body.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const elementHtml = e.target.outerHTML;
-        window.parent.postMessage({
-          type: 'elementSelected',
-          content: elementHtml
-        }, '*');
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Check if element is already selected or has a selected parent
+      if (window.selectedElements.has(e.target) || hasSelectedParent(e.target)) {
+      return;
+      }
+
+      const elementHtml = e.target.outerHTML;
+      window.selectedElements.add(e.target);
+      e.target.style.outline = '2px solid #00ff00';  // Green border for selected elements
+      
+      window.parent.postMessage({
+      type: 'elementSelected',
+      content: elementHtml,
+      index: window.selectedElements.size - 1
+      }, '*');
       }, true);
+
+      // Listen for remove messages from parent
+      window.addEventListener('message', (event) => {
+      if (event.data.type === 'removeElement') {
+      const elements = Array.from(window.selectedElements);
+      const elementToRemove = elements[event.data.index];
+      if (elementToRemove) {
+      elementToRemove.style.outline = '';
+      window.selectedElements.delete(elementToRemove);
+      }
+      }
+      });
     `;
 
     try {
@@ -98,14 +199,14 @@ function Scrape() {
   </body>
 </html>`;
 
-      console.log('Injecting HTML:', fullHtml); // Debug log
+      // console.log('Injecting HTML:', fullHtml); // Debug log
 
       // Create blob and inject
       const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
       const blobUrl = URL.createObjectURL(blob);
 
       iframe.onload = () => {
-        console.log('iframe loaded'); // Debug log
+        // console.log('iframe loaded'); // Debug log
         URL.revokeObjectURL(blobUrl);
         setTimeout(injectSelectionScript, 100); // Add delay before injecting script
       };
@@ -120,20 +221,21 @@ function Scrape() {
     if (!url.trim()) return;
 
     try {
+      urlQueryError = '';
       setIsLoading(true);
       setContent('');
       setSelectedElements([]);
 
       await queryScrape(url, (chunk) => {
         try {
-          console.log('Raw chunk:', chunk, chunk.length); // Debug raw chunk
+          // console.log('Raw chunk:', chunk, chunk.length); // Debug raw chunk
           const parsed = JSON.parse(chunk.replace('data: ', ''));
-          console.log('Parsed results:', parsed);
+          // console.log('Parsed results:', parsed);
           parsed.content = parsed.content
             .replace(/<html[^>]*>/, '')
             .replace(/<\/html>/, '');
 
-          console.log('Parsed content:', parsed.content.length); // Debug parsed content
+          // console.log('Parsed content:', parsed.content.length); // Debug parsed content
 
           if (parsed.type === 'content' || parsed.type === 'full') {
             setContent(parsed.content);
@@ -150,24 +252,60 @@ function Scrape() {
     }
   };
 
+  const handleSummarize = async () => {
+    if (!selectedElements.length) {
+      setSummary('');
+      return;
+    }
+
+    // Abort any previous request
+    if (abortController.current) {
+      abortController.current.abort();
+    }
+
+    // Create new abort controller for this request
+    abortController.current = new AbortController();
+
+    try {
+      const results = await getSummary(
+        selectedElements,
+        abortController.current
+      );
+      setSummary(results.summary);
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Summarization cancelled');
+        setSummary('Summarization cancelled');
+      } else {
+        console.error('Error getting summary:', error);
+        setSummary('Error generating summary');
+      }
+    }
+  };
+
   return (
     <div>
       <h1>Scrape</h1>
       <div style={{ marginBottom: '20px' }}>
-        <input
-          type="text"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="Enter URL to scrape"
-          style={{ width: '300px', marginRight: '10px' }}
-        />
-        <button
-          onClick={handleScrape}
-          disabled={isLoading}
-          style={{ padding: '5px 10px' }}
-        >
-          {isLoading ? 'Scraping...' : 'Scrape'}
-        </button>
+        <div>
+          <input
+            type="text"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="Enter URL to scrape"
+            style={{ width: '300px', marginRight: '10px' }}
+          />
+          <button
+            onClick={handleScrape}
+            disabled={isLoading}
+            style={{ padding: '5px 10px' }}
+          >
+            {isLoading ? 'Scraping...' : 'Scrape'}
+          </button>
+        </div>
+        <span style={{ color: 'red', fontSize: '0.8rem' }}>
+          {urlQueryError}
+        </span>
       </div>
 
       <div
@@ -230,6 +368,13 @@ function Scrape() {
                       setSelectedElements((prev) =>
                         prev.filter((_, i) => i !== index)
                       );
+                      iframeRef.current?.contentWindow?.postMessage(
+                        {
+                          type: 'removeElement',
+                          index: index,
+                        },
+                        '*'
+                      );
                     }}
                     style={{ marginTop: '5px' }}
                   >
@@ -237,10 +382,10 @@ function Scrape() {
                   </button>
                   <button
                     onClick={() => {
-                      console.log(
-                        'Title:',
-                        element.replace(/<[^>]+>/g, ' ').trim()
-                      );
+                      // console.log(
+                      //   'Title:',
+                      //   element.replace(/<[^>]+>/g, ' ').trim()
+                      // );
                       setTitle(element.replace(/<[^>]+>/g, ' ').trim());
                       setTitleIdx(index);
                     }}
@@ -280,9 +425,43 @@ function Scrape() {
               onChange={(e) => setAuthors(e.target.value.split(', '))}
             />
           </div>
-          <button>Submit</button>
+          <button onClick={handleSummarize}>Summarise</button>
+          <button
+            onClick={() => {
+              const fetchSummary = async () => {
+                const results = await getSummary(selectedElements);
+                setSummary(results.summary);
+                return results;
+              };
+              fetchSummary().then((results) => {
+                console.log({
+                  title: title,
+                  authors: authors.length
+                    ? authors
+                    : url.match(
+                        /((?<=http:\/\/)|(?<=https:\/\/))[^/]+(?=\/)/gm
+                      ),
+                  summary: results.summary,
+                  body: selectedElements.map((element) => {
+                    return element.replace(/<[^>]+>/g, ' ').trim();
+                  }),
+                });
+              });
+            }}
+          >
+            Submit
+          </button>
         </div>
-
+        <div>
+          <textarea
+            style={{ width: '100%', resize: 'none' }}
+            rows={10}
+            value={summary}
+            onChange={(e) => {
+              setSummary(e.target.value);
+            }}
+          />
+        </div>
         <div style={{ fontSize: '0.5rem', opacity: '0.5' }}>{content}</div>
       </div>
     </div>

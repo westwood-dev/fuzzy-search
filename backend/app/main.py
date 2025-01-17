@@ -5,7 +5,7 @@ from multiprocessing import Process
 from multiprocessing.queues import Queue
 from multiprocessing.synchronize import Event
 from queue import Empty
-from fastapi import FastAPI, HTTPException, File, UploadFile, Request
+from fastapi import FastAPI, HTTPException, File, UploadFile, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import create_engine, text
@@ -16,8 +16,9 @@ import logging
 from elasticsearch import AsyncElasticsearch
 from redis import asyncio as aioredis
 import multiprocessing
-
+from typing import List
 import numpy as np
+from starlette.responses import Response
 
 from document_processor import extract_text, ALLOWED_EXTENSIONS
 from embedding import get_embedding, re_rank, precompute_embeddings_and_clusters, kmeans
@@ -26,7 +27,9 @@ from embedding import get_dimension_reduced_embeddings, AXES
 from scrape import run_spider, ScrapeType
 
 # import local model classes
-from models import ArticleModel, SearchRequest, Article, SearchResult, SearchResponse, metadata, NetworkNode, NetworkLink, NetworkData
+from models import ArticleModel, SearchRequest, Article, SearchResult, SearchResponse, metadata, NetworkNode, NetworkLink, NetworkData, SummariseRequest, StatusRequest
+
+from summariser import Summariser
 
 # Logging setup
 logging.basicConfig(level=logging.DEBUG)
@@ -390,6 +393,81 @@ async def scrape(
     
     return JSONResponse(results)
 
+# Initialize summarizer
+summarizer = Summariser()
+
+@app.post("/summarise")
+async def summarize_text(request: SummariseRequest, background_tasks: BackgroundTasks):
+    print('Starting summarise_text')
+    
+    # Create a flag to track if the client disconnected
+    request_cancelled = False
+    
+    async def on_disconnect():
+        nonlocal request_cancelled
+        request_cancelled = True
+        print("Client disconnected, marking request as cancelled")
+    
+    # Add disconnect handler
+    background_tasks.add_task(on_disconnect)
+    
+    try:
+        full_text = " ".join(request.sentences)
+        
+        summary_future = asyncio.create_task(
+            summarizer.generate_summary_async(full_text)
+        )
+        
+        async def cleanup():
+            if not summary_future.done():
+                print("Cleanup: Cancelling summary generation...")
+                summary_future.cancel()
+                try:
+                    await summary_future
+                except asyncio.CancelledError:
+                    print("Cleanup: Summary generation cancelled successfully")
+                except Exception as e:
+                    print(f"Cleanup: Error during cancellation: {e}")
+
+        background_tasks.add_task(cleanup)
+        
+        try:
+            summary = await asyncio.wait_for(summary_future, timeout=30.0)
+            if request_cancelled:
+                print("Request was cancelled during processing")
+                raise asyncio.CancelledError()
+            return {"summary": summary}
+        except asyncio.TimeoutError:
+            print('Summary generation timed out')
+            summary_future.cancel()
+            raise HTTPException(status_code=504, detail="Summary generation timed out")
+        except asyncio.CancelledError:
+            print('Summary generation cancelled by client disconnect')
+            raise HTTPException(status_code=499, detail="Client closed request")
+            
+    except Exception as e:
+        logger.error(f"Error in summarize_text: {e}", exc_info=True)
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=500, detail=str(e))
+
+from httpx import AsyncClient
+
+@app.get("/status")
+async def status(url: str):  # Change from StatusRequest to url parameter
+    try:
+        async with AsyncClient() as client:
+            response = await client.get(url)
+            if response.status_code != 200:
+                return JSONResponse(
+                    content={"status": "error", "code": response.status_code}
+                )
+            return JSONResponse(content={"status": "ok"})
+    except Exception as e:
+        # logger.error(f"Error checking status: {e}", exc_info=True)
+        return JSONResponse(
+            content={"status": "error", "message": str(e)}
+        )
 
 if __name__ == "__main__":
     import uvicorn
